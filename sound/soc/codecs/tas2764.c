@@ -37,12 +37,55 @@ struct tas2764_priv {
 	struct gpio_desc *sdz_gpio;
 	struct regmap *regmap;
 	struct device *dev;
+	int irq;
 
 	enum tas2764_devid devid;
 	
 	int v_sense_slot;
 	int i_sense_slot;
 };
+
+static irqreturn_t tas2764_irq(int irq, void *data)
+{
+	struct tas2764_priv *tas2764 = data;
+	static const unsigned int regs[6] = {
+		TAS2764_INT_LTCH0,
+		TAS2764_INT_LTCH1,
+		TAS2764_INT_LTCH1_0,
+		TAS2764_INT_LTCH2,
+		TAS2764_INT_LTCH3,
+		TAS2764_INT_LTCH4,
+	};
+	static const char *messages[8] = {
+		"fault: over temperature" /* INT_LTCH0 & BIT(0) */
+		"fault: over current",
+		"fault: bad TDM clock"
+		"limiter active",
+		"fault: PVDD below limiter inflection point",
+		"fault: limiter max attenuation",
+		"fault: BOP infinite hold",
+		"fault: BOP mute", /* INT_LTCH0 & BIT(7) */
+	};
+	u8 latched[6] = {0, 0, 0, 0, 0, 0};
+	int ret = IRQ_NONE;
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(regs); i++)
+		latched[i] = snd_soc_component_read(tas2764->component, regs[i]);
+
+	for (i = 0; i < 8; i++) {
+		if (latched[0] & BIT(i)) {
+			dev_crit_ratelimited(tas2764->dev, "%s\n", messages[i]);
+			ret = IRQ_HANDLED;
+		}
+	}
+
+	if (latched[0] != 0)
+		dev_err_ratelimited(tas2764->dev, "other int state context: %02x,%02x,%02x,%02x,%02x",
+				    latched[1], latched[2], latched[3], latched[4], latched[5]);
+
+	return ret;
+}
 
 static void tas2764_reset(struct tas2764_priv *tas2764)
 {
@@ -535,6 +578,34 @@ static int tas2764_codec_probe(struct snd_soc_component *component)
 		usleep_range(1000, 2000);
 	}
 
+	if (tas2764->irq) {
+		ret = devm_request_threaded_irq(tas2764->dev, tas2764->irq, NULL, tas2764_irq,
+						IRQF_ONESHOT | IRQF_SHARED | IRQF_TRIGGER_LOW,
+						"tas2764", tas2764);
+		if (ret)
+			dev_warn(tas2764->dev, "failed to request IRQ: %d\n", ret);
+
+		ret = snd_soc_component_write(tas2764->component, TAS2764_INT_MASK0, 0x0);
+		if (ret < 0)
+			return ret;
+
+		ret = snd_soc_component_write(tas2764->component, TAS2764_INT_MASK1, 0xff);
+		if (ret < 0)
+			return ret;
+
+		ret = snd_soc_component_write(tas2764->component, TAS2764_INT_MASK2, 0xff);
+		if (ret < 0)
+			return ret;
+
+		ret = snd_soc_component_write(tas2764->component, TAS2764_INT_MASK3, 0xff);
+		if (ret < 0)
+			return ret;
+
+		ret = snd_soc_component_write(tas2764->component, TAS2764_INT_MASK4, 0xff);
+		if (ret < 0)
+			return ret;
+	}
+
 	tas2764_reset(tas2764);
 
 	ret = snd_soc_component_update_bits(tas2764->component, TAS2764_TDM_CFG5,
@@ -690,6 +761,7 @@ static int tas2764_i2c_probe(struct i2c_client *client)
 		tas2764->devid = DEVID_TAS2764;
 
 	tas2764->dev = &client->dev;
+	tas2764->irq = client->irq;
 	i2c_set_clientdata(client, tas2764);
 	dev_set_drvdata(&client->dev, tas2764);
 

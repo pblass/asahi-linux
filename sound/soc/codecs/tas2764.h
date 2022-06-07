@@ -90,4 +90,19 @@
 
 #define TAS2764_BOP_CFG0                TAS2764_REG(0X0, 0x1d)
 
+/* Latched Fault Registers */
+#define TAS2764_INT_LTCH0               TAS2764_REG(0X0, 0x49)
+#define TAS2764_INT_LTCH1               TAS2764_REG(0X0, 0x4a)
+#define TAS2764_INT_LTCH1_0             TAS2764_REG(0X0, 0x4b)
+#define TAS2764_INT_LTCH2               TAS2764_REG(0X0, 0x4f)
+#define TAS2764_INT_LTCH3               TAS2764_REG(0X0, 0x50)
+#define TAS2764_INT_LTCH4               TAS2764_REG(0X0, 0x51)
+
+/* Interrupt Masks */
+#define TAS2764_INT_MASK0               TAS2764_REG(0X0, 0x3b)
+#define TAS2764_INT_MASK1               TAS2764_REG(0X0, 0x3c)
+#define TAS2764_INT_MASK2               TAS2764_REG(0X0, 0x40)
+#define TAS2764_INT_MASK3               TAS2764_REG(0X0, 0x41)
+#define TAS2764_INT_MASK4               TAS2764_REG(0X0, 0x3d)
+
 #endif /* __TAS2764__ */
