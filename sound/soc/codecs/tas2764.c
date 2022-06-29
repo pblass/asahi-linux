@@ -45,44 +45,53 @@ struct tas2764_priv {
 	int i_sense_slot;
 };
 
+static const char *tas2764_int_ltch0_msgs[8] = {
+	"fault: over temperature", /* INT_LTCH0 & BIT(0) */
+	"fault: over current",
+	"fault: bad TDM clock",
+	"limiter active",
+	"fault: PVDD below limiter inflection point",
+	"fault: limiter max attenuation",
+	"fault: BOP infinite hold",
+	"fault: BOP mute", /* INT_LTCH0 & BIT(7) */
+};
+
+static const unsigned int tas2764_int_readout_regs[6] = {
+	TAS2764_INT_LTCH0,
+	TAS2764_INT_LTCH1,
+	TAS2764_INT_LTCH1_0,
+	TAS2764_INT_LTCH2,
+	TAS2764_INT_LTCH3,
+	TAS2764_INT_LTCH4,
+};
+
 static irqreturn_t tas2764_irq(int irq, void *data)
 {
 	struct tas2764_priv *tas2764 = data;
-	static const unsigned int regs[6] = {
-		TAS2764_INT_LTCH0,
-		TAS2764_INT_LTCH1,
-		TAS2764_INT_LTCH1_0,
-		TAS2764_INT_LTCH2,
-		TAS2764_INT_LTCH3,
-		TAS2764_INT_LTCH4,
-	};
-	static const char *messages[8] = {
-		"fault: over temperature" /* INT_LTCH0 & BIT(0) */
-		"fault: over current",
-		"fault: bad TDM clock"
-		"limiter active",
-		"fault: PVDD below limiter inflection point",
-		"fault: limiter max attenuation",
-		"fault: BOP infinite hold",
-		"fault: BOP mute", /* INT_LTCH0 & BIT(7) */
-	};
 	u8 latched[6] = {0, 0, 0, 0, 0, 0};
 	int ret = IRQ_NONE;
 	int i;
 
-	for (i = 0; i < ARRAY_SIZE(regs); i++)
-		latched[i] = snd_soc_component_read(tas2764->component, regs[i]);
+	for (i = 0; i < ARRAY_SIZE(latched); i++)
+		latched[i] = snd_soc_component_read(tas2764->component,
+						    tas2764_int_readout_regs[i]);
 
 	for (i = 0; i < 8; i++) {
 		if (latched[0] & BIT(i)) {
-			dev_crit_ratelimited(tas2764->dev, "%s\n", messages[i]);
+			dev_crit_ratelimited(tas2764->dev, "%s\n",
+					     tas2764_int_ltch0_msgs[i]);
 			ret = IRQ_HANDLED;
 		}
 	}
 
-	if (latched[0] != 0)
-		dev_err_ratelimited(tas2764->dev, "other int state context: %02x,%02x,%02x,%02x,%02x",
+	if (latched[0]) {
+		dev_err_ratelimited(tas2764->dev, "other context to the fault: %02x,%02x,%02x,%02x,%02x",
 				    latched[1], latched[2], latched[3], latched[4], latched[5]);
+		snd_soc_component_update_bits(tas2764->component,
+					      TAS2764_INT_CLK_CFG,
+					      TAS2764_INT_CLK_CFG_IRQZ_CLR,
+					      TAS2764_INT_CLK_CFG_IRQZ_CLR);
+	}
 
 	return ret;
 }
@@ -106,6 +115,7 @@ static int tas2764_set_power(struct tas2764_priv *tas2764, u8 mode)
 	int ret;
 
 	// TODO: Does this only affect the SN012776 variant?
+	/*
 	if (tas2764->devid == DEVID_SN012776 && mode == TAS2764_PWR_CTRL_MUTE) {
 		ret = snd_soc_component_update_bits(tas2764->component,
 						    TAS2764_PWR_CTRL,
@@ -114,7 +124,8 @@ static int tas2764_set_power(struct tas2764_priv *tas2764, u8 mode)
 		if (ret < 0)
 			return ret;
 	}
-
+	*/
+  
 	ret = snd_soc_component_update_bits(tas2764->component,
 					    TAS2764_PWR_CTRL,
 					    TAS2764_PWR_CTRL_MASK,
@@ -125,7 +136,7 @@ static int tas2764_set_power(struct tas2764_priv *tas2764, u8 mode)
 	return 0;
 }
 
-
+/*
 static int tas2764_set_bias_level(struct snd_soc_component *component,
 				 enum snd_soc_bias_level level)
 {
@@ -134,8 +145,8 @@ static int tas2764_set_bias_level(struct snd_soc_component *component,
 
 	switch (level) {
 	case SND_SOC_BIAS_ON:
-		mode = TAS2764_PWR_CTRL_ACTIVE;
-		break;
+		//mode = TAS2764_PWR_CTRL_ACTIVE;
+		//break;
 	case SND_SOC_BIAS_STANDBY:
 	case SND_SOC_BIAS_PREPARE:
 		mode = TAS2764_PWR_CTRL_MUTE;
@@ -152,6 +163,7 @@ static int tas2764_set_bias_level(struct snd_soc_component *component,
 
 	return tas2764_set_power(tas2764, mode);
 }
+*/
 
 #ifdef CONFIG_PM
 static int tas2764_codec_suspend(struct snd_soc_component *component)
@@ -206,9 +218,13 @@ static SOC_ENUM_SINGLE_DECL(
 static const struct snd_kcontrol_new tas2764_asi1_mux =
 	SOC_DAPM_ENUM("ASI1 Source", tas2764_ASI1_src_enum);
 
+
 static int tas2764_dac_event(struct snd_soc_dapm_widget *w,
 			     struct snd_kcontrol *kcontrol, int event)
 {
+	return 0;
+
+#if 0
 	struct snd_soc_component *component = snd_soc_dapm_to_component(w->dapm);
 	struct tas2764_priv *tas2764 = snd_soc_component_get_drvdata(component);
 	u8 mode;
@@ -226,7 +242,9 @@ static int tas2764_dac_event(struct snd_soc_dapm_widget *w,
 	}
 
 	return tas2764_set_power(tas2764, mode);
+#endif
 }
+
 
 static const struct snd_kcontrol_new isense_switch =
 	SOC_DAPM_SINGLE("Switch", TAS2764_PWR_CTRL, TAS2764_ISENSE_POWER_EN, 1, 1);
@@ -265,7 +283,7 @@ static int tas2764_mute(struct snd_soc_dai *dai, int mute, int direction)
 
 	ret = snd_soc_component_update_bits(component, TAS2764_PWR_CTRL,
 					    TAS2764_PWR_CTRL_MASK,
-					    mute ? TAS2764_PWR_CTRL_MUTE : 0);
+					    mute ? TAS2764_PWR_CTRL_SHUTDOWN : TAS2764_PWR_CTRL_ACTIVE);
 
 	if (ret < 0)
 		return ret;
@@ -580,12 +598,12 @@ static int tas2764_codec_probe(struct snd_soc_component *component)
 
 	if (tas2764->irq) {
 		ret = devm_request_threaded_irq(tas2764->dev, tas2764->irq, NULL, tas2764_irq,
-						IRQF_ONESHOT | IRQF_SHARED | IRQF_TRIGGER_LOW,
+						IRQF_ONESHOT | IRQF_SHARED,
 						"tas2764", tas2764);
 		if (ret)
 			dev_warn(tas2764->dev, "failed to request IRQ: %d\n", ret);
 
-		ret = snd_soc_component_write(tas2764->component, TAS2764_INT_MASK0, 0x0);
+		ret = snd_soc_component_write(tas2764->component, TAS2764_INT_MASK0, 0xff); // BIT(2));
 		if (ret < 0)
 			return ret;
 
@@ -618,11 +636,13 @@ static int tas2764_codec_probe(struct snd_soc_component *component)
 	if (ret < 0)
 		return ret;
 
+/*
 	ret = snd_soc_component_update_bits(component, TAS2764_PWR_CTRL,
 					    TAS2764_PWR_CTRL_MASK,
 					    TAS2764_PWR_CTRL_MUTE);
 	if (ret < 0)
 		return ret;
+*/
 
 	if (tas2764->devid == DEVID_SN012776) {
 		ret = snd_soc_component_update_bits(component, TAS2764_PWR_CTRL,
@@ -658,7 +678,7 @@ static const struct snd_soc_component_driver soc_component_driver_tas2764 = {
 	.probe			= tas2764_codec_probe,
 	.suspend		= tas2764_codec_suspend,
 	.resume			= tas2764_codec_resume,
-	.set_bias_level		= tas2764_set_bias_level,
+	//.set_bias_level		= tas2764_set_bias_level,
 	.controls		= tas2764_snd_controls,
 	.num_controls		= ARRAY_SIZE(tas2764_snd_controls),
 	.dapm_widgets		= tas2764_dapm_widgets,
@@ -694,9 +714,21 @@ static const struct regmap_range_cfg tas2764_regmap_ranges[] = {
 	},
 };
 
+static bool tas2764_volatile_register(struct device *dev, unsigned int reg)
+{
+	switch (reg) {
+	case TAS2764_INT_LTCH0 ... TAS2764_INT_LTCH4:
+	case TAS2764_INT_CLK_CFG:
+		return true;
+	default:
+		return false;
+	}
+}
+
 static const struct regmap_config tas2764_i2c_regmap = {
 	.reg_bits = 8,
 	.val_bits = 8,
+	.volatile_reg = tas2764_volatile_register,
 	.reg_defaults = tas2764_reg_defaults,
 	.num_reg_defaults = ARRAY_SIZE(tas2764_reg_defaults),
 	.cache_type = REGCACHE_RBTREE,
