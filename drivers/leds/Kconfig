@@ -69,6 +69,13 @@ config LEDS_AN30259A
 	  To compile this driver as a module, choose M here: the module
 	  will be called leds-an30259a.
 
+config LEDS_APPLE_SILICON
+	tristate "Keyboard Backlight support for Apple silicon laptops"
+	depends on LEDS_CLASS
+	depends on ARCH_APPLE || COMPILE_TEST
+	help
+	  This option enables support for keyboard backlight of Apple silicon laptops
+
 config LEDS_APU
 	tristate "Front panel LED support for PC Engines APU/APU2/APU3 boards"
 	depends on LEDS_CLASS
